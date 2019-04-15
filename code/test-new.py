@@ -5,7 +5,6 @@ import numpy as np
 import os
 import sys
 import glob
-from skimage import measure
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 sys.path.append(os.path.dirname(BASE_DIR))
@@ -115,14 +114,18 @@ def predict():
         if not os.path.exists('../data/ShapeNet/test-PointGrid'):
             os.mkdir('../data/ShapeNet/test-PointGrid')
 
-        gt_classes = [0 for _ in range(4)]
-        negative_classes = [0 for _ in range(4)]
-        positive_classes = [0 for _ in range(4)]
+        gt_classes = [0 for _ in range(model.SEG_PART)]
+        negative_classes = [0 for _ in range(model.SEG_PART)]
+        positive_classes = [0 for _ in range(model.SEG_PART)]
         for filelist in sorted(os.listdir(TESTING_FILE_LIST)):
             print(filelist)
+
             mat_content = np.load(os.path.join(TESTING_FILE_LIST,filelist))
             pc = mat_content[:, 0:3]
-            labels = np.squeeze(mat_content[:, -2]).astype(int)
+            choice = np.random.choice(pc.shape[0], size=model.SAMPLE_NUM, replace=True)
+            pc = pc[choice, :]
+            labels = np.squeeze(mat_content[choice, -1]).astype(int)
+
             seg_label = model.integer_label_to_one_hot_label(labels)
             pointgrid, pointgrid_label, index = model.pc2voxel(pc, seg_label)
             #     pointgrid: N x N x N x （K x 3 + 1)
@@ -157,23 +160,23 @@ def predict():
                         pred_point_label[i] = majority
 
             for j in range(pred_point_label.shape[0]):
-                gt_classes[labels[j]-1]+=1
+                gt_classes[labels[j]]+=1
                 if int(labels[j])==int(pred_point_label[j]):
-                    positive_classes[labels[j]-1]+=1
+                    positive_classes[labels[j]]+=1
                 else:
-                    negative_classes[labels[j]-1]+=1
+                    negative_classes[labels[j]]+=1
             print('negative:{},positive:{},gt_classes:{}'.format(negative_classes,positive_classes,gt_classes))
         print('negative_classes count:',negative_classes)
         print('positive_classes count:',positive_classes)
         print('gt_classes count:',gt_classes)
 
         iou_list=[]
-        for i in range(4):
+        for i in range(model.SEG_PART):
             iou = positive_classes[i] / gt_classes[i]
             iou_list.append(iou)
         print('IOU:',iou_list)
         print('ACC:',sum(positive_classes)/sum(gt_classes))
-        print('mIOU:',sum(iou_list) / 4.0)
+        print('mIOU:',sum(iou_list) / float(model.SEG_PART))
 
 with tf.Graph().as_default():
     predict()
