@@ -13,14 +13,13 @@ N = 16 # grid size is N x N x N
 K = 4 # each cell has K points
 NUM_CATEGORY=SEG_PART = 13
 NUM_SEG_PART = SEG_PART+1
-NUM_PER_POINT_FEATURES = 3
+NUM_PER_POINT_FEATURES = 6
 NUM_FEATURES = K * NUM_PER_POINT_FEATURES + 1
-SAMPLE_NUM=9096
+SAMPLE_NUM=4096
 batch_norm = partial(slim.batch_norm, decay=0.9, scale=True, epsilon=1e-5, scope='bn', updates_collections=None)
 
 def leak_relu(x, leak=0.1, scope=None):
     return tf.where(x >= 0, x, leak * x)
-
 
 
 def integer_label_to_one_hot_label(integer_label):
@@ -41,7 +40,6 @@ def integer_label_to_one_hot_label(integer_label):
     else:
         raise
     return one_hot_label
-
 
 
 def pc2voxel_old(pc, pc_label):
