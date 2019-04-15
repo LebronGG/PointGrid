@@ -119,18 +119,20 @@ def predict():
         positive_classes = [0 for _ in range(model.SEG_PART)]
         for filelist in sorted(os.listdir(TESTING_FILE_LIST)):
             print(filelist)
-
             mat_content = np.load(os.path.join(TESTING_FILE_LIST,filelist))
-            pc = mat_content[:, 0:3]
-            choice = np.random.choice(pc.shape[0], size=model.SAMPLE_NUM, replace=True)
-            pc = pc[choice, :]
-            labels = np.squeeze(mat_content[choice, -1]).astype(int)
+            choice = np.random.choice(mat_content.shape[0], model.SAMPLE_NUM, replace=False)
+            mat_content = mat_content[choice, :]
+
+            xyz = mat_content[:, 0:3]
+            xyz = model.rotate_pc(xyz)
+            rgb = mat_content[:, 3:6] / 255.0
+
+            pc = np.concatenate((xyz, rgb), axis=1)
+            labels = np.squeeze(mat_content[:, -1]).astype(int)
 
             seg_label = model.integer_label_to_one_hot_label(labels)
-            pointgrid, pointgrid_label, index = model.pc2voxel(pc, seg_label)
-            #     pointgrid: N x N x N x （K x 3 + 1)
-            #     label: N x N x N x (K+1) x NUM_SEG_PART
-            #     index: N x N x N x K
+            pointgrid, pointgrid_label, _ = model.pc2voxel(pc, seg_label)
+
             pointgrid = np.expand_dims(pointgrid, axis=0)
             pointgrid_label = np.expand_dims(pointgrid_label, axis=0)
             feed_dict = {
