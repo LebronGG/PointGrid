@@ -67,9 +67,15 @@ def load_and_enqueue(sess, enqueue_op, pointgrid_ph, seg_label_ph):
         np.random.shuffle(train_file_idx)
         for loop in range(len(TRAINING_FILE_LIST)):
             mat_content = np.load('../data/ShapeNet/' + TRAINING_FILE_LIST[train_file_idx[loop]] + '.npy')
-            pc = mat_content[:, 0:3]
-            labels = np.squeeze(mat_content[:, -2]).astype(int)
-            pc = model.rotate_pc(pc)
+            # choice=np.random.choice(mat_content.shape[0],model.SAMPLE_NUM, replace=False)
+            # mat_content=mat_content[choice,:]
+
+            xyz = mat_content[:, 0:3]
+            xyz = model.rotate_pc(xyz)
+            rgb=mat_content[:, 3:6]/255.0
+
+            pc=np.concatenate((xyz,rgb),axis=1)
+            labels = np.squeeze(mat_content[:, -1]).astype(int)
 
             seg_label = model.integer_label_to_one_hot_label(labels)
             pointgrid, pointgrid_label, _ = model.pc2voxel(pc, seg_label)
