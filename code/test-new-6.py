@@ -105,7 +105,7 @@ def predict():
         if not os.path.exists(output_dir):
             os.mkdir(output_dir)
 
-        flog = open(os.path.join(output_dir, 'log.txt'), 'w')
+        flog = open(os.path.join(output_dir, 'log-6.txt'), 'w')
 
         # Restore variables from disk.
         ckpt_dir = './train_results/trained_models'
@@ -119,7 +119,7 @@ def predict():
         negative_classes = [0 for _ in range(model.SEG_PART)]
         positive_classes = [0 for _ in range(model.SEG_PART)]
         for filelist in sorted(os.listdir(TESTING_FILE_LIST)):
-            print(filelist)
+            printout(flog,filelist)
             mat_content = np.load(os.path.join(TESTING_FILE_LIST,filelist))
             # choice = np.random.choice(mat_content.shape[0], model.SAMPLE_NUM, replace=False)
             # mat_content = mat_content[choice, :]
