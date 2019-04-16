@@ -20,8 +20,12 @@ output_dir = os.path.join(BASE_DIR, './test_results')
 
 # MAIN SCRIPT
 batch_size = 1               # DO NOT CHANGE
-purify = True                # Reassign label based on k-nearest neighbor. Set to False for large point cloud due to slow speed
+purify = False                # Reassign label based on k-nearest neighbor. Set to False for large point cloud due to slow speed
 knn = 5                      # for the purify
+
+def printout(flog, data):
+    print(data)
+    flog.write(data + '\n')
 
 def get_file_name(file_path):
     parts = file_path.split('/')
@@ -60,9 +64,6 @@ def output_color_point_cloud(data, seg, out_file, r=0.01):
                 f.write('f %d %d %d\n' % (count + sphereFaces[j][0], count + sphereFaces[j][1], count + sphereFaces[j][2]))
             count += nSphereVertices
 
-def printout(flog, data):
-    print(data)
-    flog.write(data + '\n')
 
 def placeholder_inputs():
     pointgrid_ph = tf.placeholder(tf.float32, shape=(batch_size, model.N, model.N, model.N, model.NUM_FEATURES))
@@ -120,18 +121,17 @@ def predict():
         for filelist in sorted(os.listdir(TESTING_FILE_LIST)):
             print(filelist)
             mat_content = np.load(os.path.join(TESTING_FILE_LIST,filelist))
-            choice = np.random.choice(mat_content.shape[0], model.SAMPLE_NUM, replace=False)
-            mat_content = mat_content[choice, :]
+            # choice = np.random.choice(mat_content.shape[0], model.SAMPLE_NUM, replace=False)
+            # mat_content = mat_content[choice, :]
 
             xyz = mat_content[:, 0:3]
-            xyz = model.rotate_pc(xyz)
             rgb = mat_content[:, 3:6] / 255.0
 
             pc = np.concatenate((xyz, rgb), axis=1)
             labels = np.squeeze(mat_content[:, -1]).astype(int)
 
             seg_label = model.integer_label_to_one_hot_label(labels)
-            pointgrid, pointgrid_label, _ = model.pc2voxel(pc, seg_label)
+            pointgrid, pointgrid_label, index = model.pc2voxel(pc, seg_label)
 
             pointgrid = np.expand_dims(pointgrid, axis=0)
             pointgrid_label = np.expand_dims(pointgrid_label, axis=0)
@@ -167,18 +167,18 @@ def predict():
                     positive_classes[labels[j]]+=1
                 else:
                     negative_classes[labels[j]]+=1
-            print('negative:{},positive:{},gt_classes:{}'.format(negative_classes,positive_classes,gt_classes))
-        print('negative_classes count:',negative_classes)
-        print('positive_classes count:',positive_classes)
-        print('gt_classes count:',gt_classes)
+            printout(flog,'negative:{},positive:{},gt_classes:{}'.format(negative_classes,positive_classes,gt_classes))
+        printout(flog,'negative_classes count:{}'.format(negative_classes))
+        printout(flog,'positive_classes count:{}'.format(positive_classes))
+        printout(flog,'gt_classes count:{}'.format(gt_classes))
 
         iou_list=[]
         for i in range(model.SEG_PART):
             iou = positive_classes[i] / gt_classes[i]
             iou_list.append(iou)
-        print('IOU:',iou_list)
-        print('ACC:',sum(positive_classes)/sum(gt_classes))
-        print('mIOU:',sum(iou_list) / float(model.SEG_PART))
+        printout(flog,'IOU:{}'.format(iou_list))
+        printout(flog,'ACC:{}'.format(sum(positive_classes)/sum(gt_classes)))
+        printout(flog,'mIOU:{}'.format(sum(iou_list) / float(model.SEG_PART)))
 
 with tf.Graph().as_default():
     predict()
