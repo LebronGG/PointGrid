@@ -184,7 +184,7 @@ def predict():
             iou = true_positive_classes[i]/float(gt_classes[i]+positive_classes[i]-true_positive_classes[i])
             iou_list.append(iou)
         printout(flog, 'IOU:{}'.format(iou_list))
-        printout(flog, 'ACC:{}'.format(sum(true_positive_classes) / sum(gt_classes)))
+        printout(flog, 'ACC:{}'.format(sum(true_positive_classes) / sum(positive_classes)))
         printout(flog, 'mIOU:{}'.format(sum(iou_list) / float(model.SEG_PART)))
 
 with tf.Graph().as_default():
