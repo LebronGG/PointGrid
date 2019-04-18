@@ -161,24 +161,31 @@ def predict():
                     if (pre_label[i] == 0 or len(set(L)) == 1):
                         pred_point_label[i] = majority
 
-            for j in range(pred_point_label.shape[0]):
-                gt_classes[labels[j]]+=1
-                if int(labels[j])==int(pred_point_label[j]):
-                    positive_classes[labels[j]]+=1
-                else:
-                    negative_classes[labels[j]]+=1
-            printout(flog,'negative:{},positive:{},gt_classes:{}'.format(negative_classes,positive_classes,gt_classes))
-        printout(flog,'negative_classes count:{}'.format(negative_classes))
-        printout(flog,'positive_classes count:{}'.format(positive_classes))
-        printout(flog,'gt_classes count:{}'.format(gt_classes))
+             for j in range(pred_point_label.shape[0]):
+                # gt_classes[labels[j]-1]+=1
+                # if int(labels[j])==int(pred_point_label[j]):
+                #     positive_classes[labels[j]-1]+=1
+                # else:
+                #     negative_classes[labels[j]-1]+=1
 
-        iou_list=[]
+                gt_l = int(labels[j])
+                pred_l = int(pred_point_label[j])
+                gt_classes[gt_l] += 1
+                positive_classes[pred_l] += 1
+                true_positive_classes[gt_l] += int(gt_l==pred_l)
+            printout(flog,'gt_l:{},positive_classes:{},true_positive_classes:{}'.format(gt_classes, positive_classes, true_positive_classes))
+        printout(flog, 'gt_l count:{}'.format(gt_classes))
+        printout(flog, 'positive_classes count:{}'.format(positive_classes))
+        printout(flog, 'true_positive_classes count:{}'.format(true_positive_classes))
+
+        iou_list = []
         for i in range(model.SEG_PART):
-            iou = positive_classes[i] / gt_classes[i]
+            # iou = positive_classes[i] / gt_classes[i]
+            iou = true_positive_classes[i]/float(gt_classes[i]+positive_classes[i]-true_positive_classes[i])
             iou_list.append(iou)
-        printout(flog,'IOU:{}'.format(iou_list))
-        printout(flog,'ACC:{}'.format(sum(positive_classes)/sum(gt_classes)))
-        printout(flog,'mIOU:{}'.format(sum(iou_list) / float(model.SEG_PART)))
+        printout(flog, 'IOU:{}'.format(iou_list))
+        printout(flog, 'ACC:{}'.format(sum(true_positive_classes) / sum(positive_classes)))
+        printout(flog, 'mIOU:{}'.format(sum(iou_list) / float(model.SEG_PART)))
 
 with tf.Graph().as_default():
     predict()
