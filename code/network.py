@@ -11,16 +11,15 @@ import tf_util
 
 N = 16 # grid size is N x N x N
 K = 4 # each cell has K points
-NUM_CATEGORY=SEG_PART = 4
+NUM_CATEGORY=SEG_PART = 13
 NUM_SEG_PART = SEG_PART+1
-NUM_PER_POINT_FEATURES = 3
+NUM_PER_POINT_FEATURES = 6
 NUM_FEATURES = K * NUM_PER_POINT_FEATURES + 1
-
+SAMPLE_NUM=2700
 batch_norm = partial(slim.batch_norm, decay=0.9, scale=True, epsilon=1e-5, scope='bn', updates_collections=None)
 
 def leak_relu(x, leak=0.1, scope=None):
     return tf.where(x >= 0, x, leak * x)
-
 
 
 def integer_label_to_one_hot_label(integer_label):
@@ -43,8 +42,7 @@ def integer_label_to_one_hot_label(integer_label):
     return one_hot_label
 
 
-
-def pc2voxel(pc, pc_label):
+def pc2voxel_old(pc, pc_label):
     # Args:
     #     pc: size n x F where n is the number of points and F is feature size
     #     pc_label: size n x NUM_SEG_PART (one-hot encoding label)
@@ -97,6 +95,51 @@ def pc2voxel(pc, pc_label):
     return data, label, index
 
 
+def pc2voxel(pc, pc_label):
+
+    num_points = pc.shape[0]
+    data = np.zeros((N, N, N, NUM_FEATURES), dtype=np.float32)
+    label = np.zeros((N, N, N, K+1, NUM_SEG_PART), dtype=np.float32)
+    index = np.zeros((N, N, N, K), dtype=np.float32)
+    xyz = pc[:, 0 : 3]
+    centroid = np.mean(xyz, axis=0, keepdims=True)
+    xyz -= centroid
+    xyz /= np.amax(np.sqrt(np.sum(xyz ** 2, axis=1)), axis=0) * 1.05
+    idx = np.floor((xyz + 1.0) / 2.0 * N)
+    L = [[] for _ in range(N * N * N)]
+    for p in range(num_points):
+        k = int(idx[p, 0] * N * N + idx[p, 1] * N + idx[p, 2])
+        L[k].append(p)
+    for i in range(N):
+      for j in range(N):
+        for k in range(N):
+          u = int(i * N * N + j * N + k)
+          if not L[u]:
+              data[i, j, k, :] = np.zeros((NUM_FEATURES), dtype=np.float32)
+              label[i, j, k, :, :] = 0
+              label[i, j, k, :, 0] = 1
+          elif (len(L[u]) >= K):
+              choice = np.random.choice(L[u], size=K, replace=False)
+              local_points = pc[choice, :] - np.ones(NUM_PER_POINT_FEATURES)*(np.float32(-1.0 + (i + 0.5) * 2.0 / N))
+              data[i, j, k, 0 : K * NUM_PER_POINT_FEATURES] = np.reshape(local_points, (K * NUM_PER_POINT_FEATURES))
+              data[i, j, k, K * NUM_PER_POINT_FEATURES] = 1.0
+              label[i, j, k, 0 : K, :] = pc_label[choice, :]
+              majority = np.argmax(np.sum(pc_label[L[u], :], axis=0))
+              label[i, j, k, K, :] = 0
+              label[i, j, k, K, majority] = 1
+              index[i, j, k, :] = choice
+          else:
+              choice = np.random.choice(L[u], size=K, replace=True)
+              local_points = pc[choice, :] - np.ones(NUM_PER_POINT_FEATURES) * (np.float32(-1.0 + (i + 0.5) * 2.0 / N))
+              data[i, j, k, 0 : K * NUM_PER_POINT_FEATURES] = np.reshape(local_points, (K * NUM_PER_POINT_FEATURES))
+              data[i, j, k, K * NUM_PER_POINT_FEATURES] = 1.0
+              label[i, j, k, 0 : K, :] = pc_label[choice, :]
+              majority = np.argmax(np.sum(pc_label[L[u], :], axis=0))
+              label[i, j, k, K, :] = 0
+              label[i, j, k, K, majority] = 1
+              index[i, j, k, :] = choice
+    return data, label, index
+
 
 def rotate_pc(pc):
     # Args:
@@ -109,7 +152,6 @@ def rotate_pc(pc):
     rotation_matrix = np.array([[cosval, 0, sinval], [0, 1, 0], [-sinval, 0, cosval]])
     rotated_pc = np.dot(pc, rotation_matrix)
     return rotated_pc
-
 
 
 def populateIntegerSegLabel(pc, voxel_label, index):
@@ -145,7 +187,6 @@ def populateIntegerSegLabel(pc, voxel_label, index):
               for s in range(K):
                   label[int(index[int(i), int(j), int(k), int(s)])] = int(voxel_label[int(i), int(j), int(k), int(s)])
     return label
-
 
 
 def populateOneHotSegLabel(pc, voxel_label, index):
@@ -208,7 +249,6 @@ def get_model(pointgrid, is_training):
     pred_seg = tf.reshape(pred_seg, [batch_size, N, N, N, K+1, NUM_SEG_PART])
 
     return  pred_seg
-
 
 # def get_loss(pred_cat, one_hot_cat, pred_seg, one_hot_seg):
 #     per_instance_cat_loss = tf.nn.softmax_cross_entropy_with_logits(logits=pred_cat, labels=one_hot_cat)

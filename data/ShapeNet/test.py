@@ -4,10 +4,12 @@ import glob
 import tensorflow as tf
 N = 16 # grid size is N x N x N
 K = 4 # each cell has K points
-NUM_CATEGORY = 4
-NUM_SEG_PART = 5
-NUM_PER_POINT_FEATURES = 3
+NUM_CATEGORY = 13
+NUM_SEG_PART = NUM_CATEGORY+1
+NUM_PER_POINT_FEATURES = 6
 NUM_FEATURES = K * NUM_PER_POINT_FEATURES + 1
+SAMPLE_NUM=4096
+
 def integer_label_to_one_hot_label(integer_label):
     if (len(integer_label.shape) == 0):
         one_hot_label = np.zeros((NUM_CATEGORY))
@@ -28,13 +30,6 @@ def integer_label_to_one_hot_label(integer_label):
     return one_hot_label
 
 def pc2voxel(pc, pc_label):
-    # Args:
-    #     pc: size n x F where n is the number of points and F is feature size
-    #     pc_label: size n x NUM_SEG_PART (one-hot encoding label)
-    # Returns:
-    #     voxel: N x N x N x K x (3+3)
-    #     label: N x N x N x (K+1) x NUM_SEG_PART
-    #     index: N x N x N x K
 
     num_points = pc.shape[0]
     data = np.zeros((N, N, N, NUM_FEATURES), dtype=np.float32)
@@ -59,7 +54,7 @@ def pc2voxel(pc, pc_label):
               label[i, j, k, :, 0] = 1
           elif (len(L[u]) >= K):
               choice = np.random.choice(L[u], size=K, replace=False)
-              local_points = pc[choice, :] - np.array([-1.0 + (i + 0.5) * 2.0 / N, -1.0 + (j + 0.5) * 2.0 / N, -1.0 + (k + 0.5) * 2.0 / N], dtype=np.float32)
+              local_points = pc[choice, :] - np.ones(NUM_PER_POINT_FEATURES)*(np.float32(-1.0 + (i + 0.5) * 2.0 / N))
               data[i, j, k, 0 : K * NUM_PER_POINT_FEATURES] = np.reshape(local_points, (K * NUM_PER_POINT_FEATURES))
               data[i, j, k, K * NUM_PER_POINT_FEATURES] = 1.0
               label[i, j, k, 0 : K, :] = pc_label[choice, :]
@@ -69,7 +64,7 @@ def pc2voxel(pc, pc_label):
               index[i, j, k, :] = choice
           else:
               choice = np.random.choice(L[u], size=K, replace=True)
-              local_points = pc[choice, :] - np.array([-1.0 + (i + 0.5) * 2.0 / N, -1.0 + (j + 0.5) * 2.0 / N, -1.0 + (k + 0.5) * 2.0 / N], dtype=np.float32)
+              local_points = pc[choice, :] - np.ones(NUM_PER_POINT_FEATURES) * (np.float32(-1.0 + (i + 0.5) * 2.0 / N))
               data[i, j, k, 0 : K * NUM_PER_POINT_FEATURES] = np.reshape(local_points, (K * NUM_PER_POINT_FEATURES))
               data[i, j, k, K * NUM_PER_POINT_FEATURES] = 1.0
               label[i, j, k, 0 : K, :] = pc_label[choice, :]
@@ -79,18 +74,39 @@ def pc2voxel(pc, pc_label):
               index[i, j, k, :] = choice
     return data, label, index
 
-mat_content = np.load('./train/000004.npy')
-pc = mat_content[:,0:3]
-labels = np.squeeze(mat_content[: ,-2]).astype(int)
-category = mat_content[:,-1].astype(int)
-seg_label = integer_label_to_one_hot_label(labels)
-# cat_label = integer_label_to_one_hot_label(category)
-data, label, index = pc2voxel(pc, seg_label)
-print(data.shape)
-print(label.shape)
-print(index.shape)
+def rotate_pc(pc):
+    # Args:
+    #     pc: size n x 3
+    # Returns:
+    #     rotated_pc: size n x 3
+    xyz=pc[:,:3]
+    rgb=pc[:,3:6]
+    angle = np.random.uniform() * 2 * np.pi
+    cosval = np.cos(angle)
+    sinval = np.sin(angle)
+    rotation_matrix = np.array([[cosval, 0, sinval], [0, 1, 0], [-sinval, 0, cosval]])
+    xyz = np.dot(xyz, rotation_matrix)
+    rotated_pc=np.concatenate((xyz,rgb),axis=1)
+    return rotated_pc
 
-print(1)
+mat_content = np.load('./val/Area_1_conferenceRoom_1.npy')
+choice = np.random.choice(mat_content.shape[0], size=SAMPLE_NUM, replace=True)
+mat_content = mat_content[choice, :]
+print(mat_content.shape)
+xyz = mat_content[:, :3]
+rgb = mat_content[:, 3:6] / 256
+pc = np.concatenate((xyz, rgb), axis=1)
+labels = np.squeeze(mat_content[:, -1]).astype(int)
+
+pc = rotate_pc(pc)
+seg_label = integer_label_to_one_hot_label(labels)
+pointgrid, pointgrid_label, _ = pc2voxel(pc, seg_label)
+
+
+print(pointgrid.shape)
+print(pointgrid_label.shape)
+
+
 
 
 

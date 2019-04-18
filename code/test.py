@@ -121,19 +121,25 @@ def predict():
         test_file_idx = np.arange(0, len(TESTING_FILE_LIST))
         np.random.shuffle(test_file_idx)
 
-        gt_classes = [0 for _ in range(4)]
-        negative_classes = [0 for _ in range(4)]
-        positive_classes = [0 for _ in range(4)]
+        gt_classes = [0 for _ in range(model.NUM_CATEGORY)]
+        negative_classes = [0 for _ in range(model.NUM_CATEGORY)]
+        positive_classes = [0 for _ in range(model.NUM_CATEGORY)]
         for loop in range(len(TESTING_FILE_LIST)):
             mat_content = np.load('../data/ShapeNet/' + TESTING_FILE_LIST[test_file_idx[loop]] + '.npy')
-            print(TESTING_FILE_LIST[test_file_idx[loop]])
-            pc = mat_content[:, 0:3]
-            labels = np.squeeze(mat_content[:, -2]).astype(int)
+            choice=np.random.choice(mat_content.shape[0],model.SAMPLE_NUM, replace=False)
+            mat_content=mat_content[choice,:]
+
+            xyz = mat_content[:, 0:3]
+            xyz = model.rotate_pc(xyz)
+            rgb = mat_content[:, 3:6] / 255.0
+
+            pc = np.concatenate((xyz, rgb), axis=1)
+            labels = np.squeeze(mat_content[:, -1]).astype(int)
+
             seg_label = model.integer_label_to_one_hot_label(labels)
             pointgrid, pointgrid_label, index = model.pc2voxel(pc, seg_label)
-            #     pointgrid: N x N x N x （K x 3 + 1)
-            #     label: N x N x N x (K+1) x NUM_SEG_PART
-            #     index: N x N x N x K
+            print(TESTING_FILE_LIST[test_file_idx[loop]])
+
             pointgrid = np.expand_dims(pointgrid, axis=0)
             pointgrid_label = np.expand_dims(pointgrid_label, axis=0)
             feed_dict = {
@@ -162,23 +168,24 @@ def predict():
                         pred_point_label[i] = majority
 
             for j in range(pred_point_label.shape[0]):
-                gt_classes[labels[j]-1]+=1
+                gt_classes[labels[j]]+=1
                 if int(labels[j])==int(pred_point_label[j]):
-                    positive_classes[labels[j]-1]+=1
+                    positive_classes[labels[j]]+=1
                 else:
-                    negative_classes[labels[j]-1]+=1
+                    negative_classes[labels[j]]+=1
+
                 print('negative:{},positive:{},gt_classes:{}'.format(negative_classes,positive_classes,gt_classes))
         print('negative_classes count:',negative_classes)
         print('positive_classes count:',positive_classes)
         print('gt_classes count:',gt_classes)
 
         iou_list=[]
-        for i in range(4):
+        for i in range(model.NUM_CATEGORY):
             iou = positive_classes[i] / gt_classes[i]
             iou_list.append(iou)
         print('IOU:',iou_list)
         print('ACC:',sum(positive_classes)/sum(gt_classes))
-        print('mIOU:',sum(iou_list) / 4.0)
+        print('mIOU:',sum(iou_list) / 13.0)
 
 with tf.Graph().as_default():
     predict()
