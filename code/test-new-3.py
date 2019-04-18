@@ -161,7 +161,7 @@ def predict():
             t2=time.time()
             printout(flog,'one point cloud cost time:{}'.format(t2-t1))
 
-            for j in range(pred_point_label.shape[0]):
+             for j in range(pred_point_label.shape[0]):
                 # gt_classes[labels[j]-1]+=1
                 # if int(labels[j])==int(pred_point_label[j]):
                 #     positive_classes[labels[j]-1]+=1
@@ -173,8 +173,8 @@ def predict():
                 gt_classes[gt_l-1] += 1
                 positive_classes[pred_l-1] += 1
                 true_positive_classes[gt_l-1] += int(gt_l==pred_l)
-            printout(flog,'gt_l:{},positive_classes:{},true_positive_classes:{}'.format(gt_l, positive_classes, true_positive_classes))
-        printout(flog, 'gt_l count:{}'.format(gt_l))
+            printout(flog,'gt_l:{},positive_classes:{},true_positive_classes:{}'.format(gt_classes, positive_classes, true_positive_classes))
+        printout(flog, 'gt_l count:{}'.format(gt_classes))
         printout(flog, 'positive_classes count:{}'.format(positive_classes))
         printout(flog, 'true_positive_classes count:{}'.format(true_positive_classes))
 
@@ -189,3 +189,4 @@ def predict():
 
 with tf.Graph().as_default():
     predict()
+
