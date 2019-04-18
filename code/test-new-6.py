@@ -5,6 +5,7 @@ import numpy as np
 import os
 import sys
 import glob
+import time
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 sys.path.append(os.path.dirname(BASE_DIR))
@@ -116,13 +117,13 @@ def predict():
             os.mkdir('../data/ShapeNet/test-PointGrid')
 
         gt_classes = [0 for _ in range(model.SEG_PART)]
-        negative_classes = [0 for _ in range(model.SEG_PART)]
         positive_classes = [0 for _ in range(model.SEG_PART)]
+        true_positive_classes = [0 for _ in range(model.SEG_PART)]
         for filelist in sorted(os.listdir(TESTING_FILE_LIST)):
             printout(flog,filelist)
             mat_content = np.load(os.path.join(TESTING_FILE_LIST,filelist))
-            # choice = np.random.choice(mat_content.shape[0], model.SAMPLE_NUM, replace=False)
-            # mat_content = mat_content[choice, :]
+            choice = np.random.choice(mat_content.shape[0], model.SAMPLE_NUM, replace=False)
+            mat_content = mat_content[choice, :]
 
             xyz = mat_content[:, 0:3]
             rgb = mat_content[:, 3:6] / 255.0
@@ -140,6 +141,7 @@ def predict():
                          seg_label_ph: pointgrid_label,
                          is_training_ph: is_training,
                         }
+            t1 = time.time()
             pred_seg_val = sess.run(pred_seg, feed_dict = feed_dict)
             #    pred_seg: of size B x N x N x N x (K+1) x NUM_PART_SEG
 
@@ -160,8 +162,10 @@ def predict():
                     majority = max(set(L), key=L.count)
                     if (pre_label[i] == 0 or len(set(L)) == 1):
                         pred_point_label[i] = majority
+            t2 = time.time()
+            print('one point cloud cost time:{}'.format(t2 - t1))
 
-             for j in range(pred_point_label.shape[0]):
+            for j in range(pred_point_label.shape[0]):
                 # gt_classes[labels[j]-1]+=1
                 # if int(labels[j])==int(pred_point_label[j]):
                 #     positive_classes[labels[j]-1]+=1
@@ -172,16 +176,17 @@ def predict():
                 pred_l = int(pred_point_label[j])
                 gt_classes[gt_l] += 1
                 positive_classes[pred_l] += 1
-                true_positive_classes[gt_l] += int(gt_l==pred_l)
-            printout(flog,'gt_l:{},positive_classes:{},true_positive_classes:{}'.format(gt_classes, positive_classes, true_positive_classes))
+                true_positive_classes[gt_l] += int(gt_l == pred_l)
+            printout(flog, 'gt_l:{},positive_classes:{},true_positive_classes:{}'.format(gt_classes, positive_classes,
+                                                                                         true_positive_classes))
+
         printout(flog, 'gt_l count:{}'.format(gt_classes))
         printout(flog, 'positive_classes count:{}'.format(positive_classes))
         printout(flog, 'true_positive_classes count:{}'.format(true_positive_classes))
 
         iou_list = []
         for i in range(model.SEG_PART):
-            # iou = positive_classes[i] / gt_classes[i]
-            iou = true_positive_classes[i]/float(gt_classes[i]+positive_classes[i]-true_positive_classes[i])
+            iou = true_positive_classes[i] / float(gt_classes[i] + positive_classes[i] - true_positive_classes[i])
             iou_list.append(iou)
         printout(flog, 'IOU:{}'.format(iou_list))
         printout(flog, 'ACC:{}'.format(sum(true_positive_classes) / sum(positive_classes)))
