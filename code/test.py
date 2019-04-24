@@ -1,18 +1,13 @@
 import argparse
 import tensorflow as tf
-import json
 import numpy as np
 import os
 import sys
-import glob
-from skimage import measure
+import h5py
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 sys.path.append(os.path.dirname(BASE_DIR))
 import network as model
-
-parser = argparse.ArgumentParser()
-FLAGS = parser.parse_args()
 
 
 # DEFAULT SETTINGS
@@ -21,46 +16,36 @@ output_dir = os.path.join(BASE_DIR, './test_results')
 
 # MAIN SCRIPT
 batch_size = 1               # DO NOT CHANGE
-purify = True                # Reassign label based on k-nearest neighbor. Set to False for large point cloud due to slow speed
+purify = False                # Reassign label based on k-nearest neighbor. Set to False for large point cloud due to slow speed
 knn = 5                      # for the purify
+i=6
 
-def get_file_name(file_path):
-    parts = file_path.split('/')
-    part = parts[-1]
-    parts = part.split('.')
-    return parts[0]
+TESTING_FILE_LIST = 'data/test_hdf5_file_list_Area{}.txt'.format(i)
+def getDataFiles(list_filename):
+    return [line.rstrip() for line in open(list_filename)]
 
-TESTING_FILE_LIST = [get_file_name(file_name) for file_name in glob.glob('../data/ShapeNet/val/' + '*.npy')]
+def loadDataFile_with_groupseglabel_stanfordindoor(filename):
+    f = h5py.File(filename)
+    data = f['data'][:]
+    if 'label' in f:
+        label = f['label'][:].astype(np.int32)
+    else :
+        label = []
+        print ('label ins None')
+    return (data[:,:,:3], label)
 
+test_file_list = getDataFiles(TESTING_FILE_LIST)
+test_data = []
+test_sem = []
+for h5_filename in test_file_list:
+    cur_data, cur_sem = loadDataFile_with_groupseglabel_stanfordindoor(h5_filename)
+    test_data.append(cur_data)
+    test_sem.append(cur_sem)
+test_data = np.concatenate(test_data, axis=0)
+test_label = np.concatenate(test_sem, axis=0)
+print('test_data:', test_data.shape)
+print('test_label:', test_label.shape)
 
-color_map = json.load(open('part_color_mapping.json', 'r'))
-
-lines = [line.rstrip('\n') for line in open('sphere.txt')]
-nSphereVertices = int(lines[0])
-sphereVertices = np.zeros((nSphereVertices, 3))
-for i in range(nSphereVertices):
-    coordinates = lines[i + 1].split()
-    for j in range(len(coordinates)):
-        sphereVertices[i, j] = float(coordinates[j])
-nSphereFaces = int(lines[nSphereVertices + 1])
-sphereFaces = np.zeros((nSphereFaces, 3))
-for i in range(nSphereFaces):
-    indices = lines[i + nSphereVertices + 2].split()
-    for j in range(len(coordinates)):
-        sphereFaces[i, j] = int(indices[j])
-
-def output_color_point_cloud(data, seg, out_file, r=0.01):
-    count = 0
-    with open(out_file, 'w') as f:
-        l = len(seg)
-        for i in range(l):
-            color = color_map[seg[i]]
-            for j in range(nSphereVertices):
-                f.write('v %f %f %f %f %f %f\n' % \
-                        (data[i][0] + sphereVertices[j][0] * r, data[i][1] + sphereVertices[j][1] * r, data[i][2] + sphereVertices[j][2] * r, color[0], color[1], color[2]))
-            for j in range(nSphereFaces):
-                f.write('f %d %d %d\n' % (count + sphereFaces[j][0], count + sphereFaces[j][1], count + sphereFaces[j][2]))
-            count += nSphereVertices
 
 def printout(flog, data):
     print(data)
@@ -71,8 +56,6 @@ def placeholder_inputs():
     seg_label_ph = tf.placeholder(tf.float32, shape=(batch_size, model.N, model.N, model.N, model.K+1, model.NUM_SEG_PART))
     return pointgrid_ph, seg_label_ph
 
-def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
 
 def load_checkpoint(checkpoint_dir, session, var_list=None):
     print(' [*] Loading checkpoint...')
@@ -107,52 +90,32 @@ def predict():
     with tf.Session(config=config) as sess:
         if not os.path.exists(output_dir):
             os.mkdir(output_dir)
-
-        flog = open(os.path.join(output_dir, 'log.txt'), 'w')
-
+        flog = open(os.path.join(output_dir, 'log_test.txt'), 'w')
         # Restore variables from disk.
         ckpt_dir = './train_results/trained_models'
         if not load_checkpoint(ckpt_dir, sess):
             exit()
 
-        if not os.path.exists('../data/ShapeNet/test-PointGrid'):
-            os.mkdir('../data/ShapeNet/test-PointGrid')
-
-        test_file_idx = np.arange(0, len(TESTING_FILE_LIST))
-        np.random.shuffle(test_file_idx)
-
+        is_training = False
         gt_classes = [0 for _ in range(model.NUM_CATEGORY)]
-        negative_classes = [0 for _ in range(model.NUM_CATEGORY)]
         positive_classes = [0 for _ in range(model.NUM_CATEGORY)]
-        for loop in range(len(TESTING_FILE_LIST)):
-            mat_content = np.load('../data/ShapeNet/' + TESTING_FILE_LIST[test_file_idx[loop]] + '.npy')
-            choice=np.random.choice(mat_content.shape[0],model.SAMPLE_NUM, replace=False)
-            mat_content=mat_content[choice,:]
-
-            xyz = mat_content[:, 0:3]
-            xyz = model.rotate_pc(xyz)
-            rgb = mat_content[:, 3:6] / 255.0
-
-            pc = np.concatenate((xyz, rgb), axis=1)
-            labels = np.squeeze(mat_content[:, -1]).astype(int)
-
+        true_positive_classes = [0 for _ in range(model.NUM_CATEGORY)]
+        for i in range(test_data.shape[0]):
+            pc = np.squeeze(test_data[i, :, :])
+            labels = np.squeeze(test_label[i, :]).astype(int)
             seg_label = model.integer_label_to_one_hot_label(labels)
             pointgrid, pointgrid_label, index = model.pc2voxel(pc, seg_label)
-            print(TESTING_FILE_LIST[test_file_idx[loop]])
-
             pointgrid = np.expand_dims(pointgrid, axis=0)
             pointgrid_label = np.expand_dims(pointgrid_label, axis=0)
             feed_dict = {
-                         pointgrid_ph: pointgrid,
-                         seg_label_ph: pointgrid_label,
-                         is_training_ph: is_training,
-                        }
-            pred_seg_val = sess.run(pred_seg, feed_dict = feed_dict)
-            #    pred_seg: of size B x N x N x N x (K+1) x NUM_PART_SEG
-
+                pointgrid_ph: pointgrid,
+                seg_label_ph: pointgrid_label,
+                is_training_ph: is_training,
+            }
+            pred_seg_val = sess.run(pred_seg, feed_dict=feed_dict)
             pred_seg_val = pred_seg_val[0, :, :, :, :, :]
             pred_point_label = model.populateOneHotSegLabel(pc, pred_seg_val, index)
-            #     pred_point_label: size n x 1
+
             if purify == True:
                 pre_label = pred_point_label
                 for i in range(pc.shape[0]): #one point cloud num 2500--2800
@@ -168,24 +131,25 @@ def predict():
                         pred_point_label[i] = majority
 
             for j in range(pred_point_label.shape[0]):
-                gt_classes[labels[j]]+=1
-                if int(labels[j])==int(pred_point_label[j]):
-                    positive_classes[labels[j]]+=1
-                else:
-                    negative_classes[labels[j]]+=1
+                gt_l = int(labels[j])
+                pred_l = int(pred_point_label[j])
+                gt_classes[gt_l] += 1
+                positive_classes[pred_l] += 1
+                true_positive_classes[gt_l] += int(gt_l == pred_l)
 
-                print('negative:{},positive:{},gt_classes:{}'.format(negative_classes,positive_classes,gt_classes))
-        print('negative_classes count:',negative_classes)
-        print('positive_classes count:',positive_classes)
-        print('gt_classes count:',gt_classes)
 
-        iou_list=[]
-        for i in range(model.NUM_CATEGORY):
-            iou = positive_classes[i] / gt_classes[i]
+        printout(flog, 'gt_l count:{}'.format(gt_classes))
+        printout(flog, 'positive_classes count:{}'.format(positive_classes))
+        printout(flog, 'true_positive_classes count:{}'.format(true_positive_classes))
+
+        iou_list = []
+        for i in range(model.SEG_PART):
+            iou = true_positive_classes[i] / float(gt_classes[i] + positive_classes[i] - true_positive_classes[i])
             iou_list.append(iou)
-        print('IOU:',iou_list)
-        print('ACC:',sum(positive_classes)/sum(gt_classes))
-        print('mIOU:',sum(iou_list) / 13.0)
+        printout(flog, 'IOU:{}'.format(iou_list))
+        printout(flog, 'ACC:{}'.format(sum(true_positive_classes)*1.0 / (sum(positive_classes))))
+        printout(flog, 'mIOU:{}'.format(sum(iou_list) / float(model.SEG_PART)))
+
 
 with tf.Graph().as_default():
     predict()
