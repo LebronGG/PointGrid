@@ -4,6 +4,7 @@ import numpy as np
 from functools import partial
 import os
 import sys
+import time
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(BASE_DIR))
 sys.path.append(os.path.join(BASE_DIR, './utils'))
@@ -11,11 +12,11 @@ import tf_util
 
 N = 16 # grid size is N x N x N
 K = 4 # each cell has K points
+NUM_POINT=4096
 NUM_CATEGORY=SEG_PART = 13
 NUM_SEG_PART = SEG_PART+1
-NUM_PER_POINT_FEATURES = 6
+NUM_PER_POINT_FEATURES = 3
 NUM_FEATURES = K * NUM_PER_POINT_FEATURES + 1
-SAMPLE_NUM=2700
 batch_norm = partial(slim.batch_norm, decay=0.9, scale=True, epsilon=1e-5, scope='bn', updates_collections=None)
 
 def leak_relu(x, leak=0.1, scope=None):
@@ -107,6 +108,7 @@ def pc2voxel(pc, pc_label):
     xyz /= np.amax(np.sqrt(np.sum(xyz ** 2, axis=1)), axis=0) * 1.05
     idx = np.floor((xyz + 1.0) / 2.0 * N)
     L = [[] for _ in range(N * N * N)]
+
     for p in range(num_points):
         k = int(idx[p, 0] * N * N + idx[p, 1] * N + idx[p, 2])
         L[k].append(p)
@@ -250,19 +252,6 @@ def get_model(pointgrid, is_training):
 
     return  pred_seg
 
-# def get_loss(pred_cat, one_hot_cat, pred_seg, one_hot_seg):
-#     per_instance_cat_loss = tf.nn.softmax_cross_entropy_with_logits(logits=pred_cat, labels=one_hot_cat)
-#     cat_loss = tf.constant(200.0, dtype=tf.float32) * tf.reduce_mean(per_instance_cat_loss)
-#     per_instance_seg_loss = tf.nn.softmax_cross_entropy_with_logits(logits=pred_seg, labels=one_hot_seg)
-#     seg_loss = tf.constant(800.0, dtype=tf.float32) * tf.reduce_mean(per_instance_seg_loss)
-#     total_var = tf.trainable_variables()
-#     reg_vars = [var for var in total_var if 'weights' in var.name]
-#     reg_loss = tf.zeros([], dtype=tf.float32)
-#     for var in reg_vars:
-#         reg_loss += tf.nn.l2_loss(var)
-#     reg_loss = tf.constant(1e-5, dtype=tf.float32) * reg_loss
-#     total_loss = cat_loss + seg_loss + reg_loss
-#     return total_loss, cat_loss, seg_loss
 
 def get_loss(pred_seg, one_hot_seg):
     # per_instance_cat_loss = tf.nn.softmax_cross_entropy_with_logits(logits=pred_cat, labels=one_hot_cat)
@@ -290,3 +279,17 @@ def intersection_over_union(pred_seg, integer_seg_label):
             iou += (float(intersection) / float(union))
     iou /= counts
     return iou
+
+
+if __name__ == "__main__":
+
+    is_training_pl = tf.constant(False, dtype=tf.bool)
+    pointgrid = tf.constant(np.random.randn(1, N ,N ,N ,NUM_FEATURES), dtype=tf.float32)
+    pred = get_model(pointgrid, is_training_pl)
+    init = tf.global_variables_initializer()
+    with tf.Session() as sess:
+        sess.run(init)
+        for i in range(10):
+            t1 = time.time()
+            sess.run(pred)
+            print ('cost time:', time.time() - t1)

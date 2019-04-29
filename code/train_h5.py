@@ -1,8 +1,6 @@
 import argparse
 import tensorflow as tf
-import threading
 import numpy as np
-from datetime import datetime
 import os
 import sys
 import h5py
@@ -11,16 +9,16 @@ sys.path.append(BASE_DIR)
 sys.path.append(os.path.dirname(BASE_DIR))
 import network as model
 
-i=6
+i=3
 parser = argparse.ArgumentParser()
 parser.add_argument('--gpu', type=int, default=0, help='GPU to use [default: GPU 0]')
-parser.add_argument('--batch', type=int, default=24, help='Batch Size during training [default: 32]')
+parser.add_argument('--batch', type=int, default=32, help='Batch Size during training [default: 32]')
 parser.add_argument('--epoch', type=int, default=100, help='Epoch to run [default: 200]')
 parser.add_argument('--wd', type=float, default=0, help='Weight Decay [Default: 0.0]')
 parser.add_argument('--log_dir', default='log{}'.format(i), help='Log dir [default: log]')
 parser.add_argument('--input_train', type=str, default='data/train_hdf5_file_list_Area{}.txt'.format(i), help='Input train data')
 parser.add_argument('--input_test', type=str, default='data/test_hdf5_file_list_Area{}.txt'.format(i), help='Input test data')
-parser.add_argument('--restore_model', type=str, help='Pretrained model')
+parser.add_argument('--restore_model', type=str,default='./log{}'.format(i),help='Pretrained model')
 FLAGS = parser.parse_args()
 
 # MAIN SCRIPT
@@ -30,6 +28,8 @@ BATCH_SIZE = FLAGS.batch
 LOG_DIR = FLAGS.log_dir
 TRAINING_FILE_LIST = FLAGS.input_train
 TESTING_FILE_LIST = FLAGS.input_test
+ckpt_dir = FLAGS.restore_model
+
 
 if not os.path.exists(LOG_DIR):
     os.mkdir(LOG_DIR)
@@ -162,7 +162,6 @@ def train():
         config.allow_soft_placement = True
         sess = tf.Session(config=config)
 
-        ckpt_dir = './train_results/trained_models'
         if not load_checkpoint(ckpt_dir, sess):
             sess.run(tf.global_variables_initializer())
 
@@ -182,11 +181,9 @@ def train():
             num_batch = num_data // BATCH_SIZE
             total_loss_acc = 0.0
             seg_loss_acc = 0.0
-            display_mark = max([num_batch // 4, 1])
 
             for batch_idx in range(num_batch):
-                if batch_idx % 100 == 0:
-                    print('Current batch/total batch num: %d/%d' % (batch_idx, num_batch))
+
                 start_idx = batch_idx * BATCH_SIZE
                 end_idx = (batch_idx + 1) * BATCH_SIZE
 
@@ -201,10 +198,11 @@ def train():
                 total_loss_acc += total_loss_val
                 seg_loss_acc += seg_loss_val
 
-                if ((i+1) % display_mark == 0):
-                    printout(flog, 'Epoch %d/%d - Iter %d/%d' % (epoch_num+1, TRAINING_EPOCHES, i+1, num_batch))
-                    printout(flog, 'Total Loss: %f' % (total_loss_acc / (i+1)))
-                    printout(flog, 'Segmentation Loss: %f' % (seg_loss_acc / (i+1)))
+                if batch_idx % 100 == 0:
+                    print('Current batch/total batch num: %d/%d' % (batch_idx, num_batch))
+                    printout(flog, 'Epoch %d/%d - Iter %d/%d' % (epoch_num+1, TRAINING_EPOCHES, batch_idx+1, num_batch))
+                    printout(flog, 'Total Loss: %f' % (total_loss_acc / (batch_idx+1)))
+                    printout(flog, 'Segmentation Loss: %f' % (seg_loss_acc / (batch_idx+1)))
 
             printout(flog, '\tMean Total Loss: %f' % (total_loss_acc / num_batch))
             printout(flog, '\tMean Segmentation Loss: %f' % (seg_loss_acc / num_batch))
@@ -216,7 +214,10 @@ def train():
             num_batch = num_data // BATCH_SIZE
             total_loss_acc = 0.0
             seg_loss_acc = 0.0
-
+            total_correct = 0
+            total_seen = 0
+            total_seen_class = [0 for _ in range(model.SEG_PART)]
+            total_correct_class = [0 for _ in range(model.SEG_PART)]
 
             for batch_idx in range(num_batch):
                 if batch_idx % 100 == 0:
@@ -230,23 +231,39 @@ def train():
                              pointgrid_ph: pointgrid,
                              seg_label_ph: pointgrid_label}
 
-                _ , total_loss_val, seg_loss_val = sess.run([step, total_loss, seg_loss], feed_dict=feed_dict)
+                _ , total_loss_val, seg_loss_val,pred_val = sess.run([step, total_loss, seg_loss,pred_seg], feed_dict=feed_dict)
                 # test_writer.add_summary(step, total_loss_val, seg_loss_val)
                 total_loss_acc += total_loss_val
                 seg_loss_acc += seg_loss_val
+
+                pred_val = np.argmax(pred_val, 2)
+                TP = np.sum(pred_val == current_label[start_idx:end_idx])
+                total_correct += TP
+                total_seen += (BATCH_SIZE * model.NUM_POINT)
+
+                for i in range(start_idx, end_idx):
+                    for j in range(model.NUM_POINT):
+                        l = current_label[i, j]
+                        total_seen_class[l] += 1
+                        total_correct_class[l] += (pred_val[i - start_idx, j] == l)
+
+
+            printout(flog,'eval accuracy: %f' % (total_correct / float(total_seen)))
+            printout(flog,'eval avg class acc: %f' % (
+                np.mean(np.array(total_correct_class) / np.array(total_seen_class, dtype=np.float))))
 
             printout(flog, '\tMean Total Loss: %f' % (total_loss_acc / num_batch))
             printout(flog, '\tMean Segmentation Loss: %f' % (seg_loss_acc / num_batch))
 
 
         for epoch in range(TRAINING_EPOCHES):
-            printout(flog, '\n>>> Training for the epoch %d/%d ...' % (epoch+1, TRAINING_EPOCHES))
+            printout(flog, '\n>>> Training for the epoch %d/%d ...' % (epoch, TRAINING_EPOCHES))
 
             train_one_epoch(epoch,sess, train_writer)
-            test_one_epoch(sess, test_writer)
+            # test_one_epoch(sess, test_writer)
 
             if epoch % 5 == 0:
-                cp_filename = saver.save(sess, os.path.join(LOG_DIR, 'epoch_' + str(epoch)+'.ckpt'))
+                cp_filename = saver.save(sess, os.path.join(LOG_DIR, 'epoch_' + str(epoch+1)+'.ckpt'))
                 printout(flog, 'Successfully store the checkpoint model into ' + cp_filename)
 
             flog.flush()
